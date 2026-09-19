@@ -23,18 +23,33 @@ class SmartCallResolver(
 
     /**
      * Resolves user intent:
-     * 1. Extracts explicit phone number if present.
-     * 2. If missing, executes SerpApi Google Search to find phone number & online details.
+     * 1. Extracts explicit phone number if present, or resolves contact name from device contact store if Context & READ_CONTACTS permission are provided.
+     * 2. If missing (or if forceSearch = true), executes SerpApi Google Search to find phone number & online details.
      * 3. Uses Groq AI to refine the call prompt with exact business details.
      */
     suspend fun resolveCall(
         rawPrompt: String,
         providedPhone: String = "",
+        context: android.content.Context? = null,
+        forceSearch: Boolean = false,
         onStatusUpdate: (String) -> Unit = {}
     ): ResolvedCallInfo = withContext(Dispatchers.IO) {
         val phoneRegex = Regex("""\+?\d{10,15}""")
         val phoneInPrompt = phoneRegex.find(rawPrompt)?.value ?: ""
-        val initialPhone = sanitizeE164Phone(providedPhone.ifBlank { phoneInPrompt })
+        var initialPhone = sanitizeE164Phone(providedPhone.ifBlank { phoneInPrompt })
+
+        var deviceContactName = ""
+        // Step 0: Try resolving from user's device mobile contacts if permission is granted & phone is missing
+        if (initialPhone.isBlank() && context != null) {
+            val contactResolver = DeviceContactResolver()
+            val candidateName = contactResolver.extractNameFromPrompt(rawPrompt)
+            val matchedContact = contactResolver.searchContact(context, candidateName)
+            if (matchedContact != null) {
+                initialPhone = matchedContact.phone
+                deviceContactName = matchedContact.name
+                onStatusUpdate("Matched device contact: ${matchedContact.name} (${matchedContact.phone})")
+            }
+        }
 
         val isValidPhone = initialPhone.isNotBlank() && initialPhone.length >= 10
 
@@ -42,30 +57,29 @@ class SmartCallResolver(
         var serpSummary = ""
         var serpResult = SerpSearchResult()
 
-        if (!isValidPhone) {
-            // Phone is missing or wrong/invalid -> Search Google via SerpApi
+        if (!isValidPhone || forceSearch) {
+            // Phone is missing/invalid or search explicitly forced -> Search Google via SerpApi
             onStatusUpdate("1/5 Phone missing/invalid. Searching Google via SerpApi...")
-            serpResult = serpClient.searchBusiness(rawPrompt)
-            val serpPhone = sanitizeE164Phone(serpResult.phone)
-            if (serpPhone.isNotBlank() && serpPhone.length >= 10) {
-                discoveredPhone = serpPhone
-            }
-            serpSummary = "Found on Google: ${serpResult.businessName} ($discoveredPhone)"
-        } else {
-            onStatusUpdate("1/5 Validated phone ($initialPhone). Fetching Google context...")
             serpResult = serpClient.searchBusiness(rawPrompt)
             val serpPhone = sanitizeE164Phone(serpResult.phone)
             if (serpPhone.isNotBlank() && serpPhone.length >= 10 && discoveredPhone.isBlank()) {
                 discoveredPhone = serpPhone
             }
-            serpSummary = "Direct phone: $initialPhone"
+            serpSummary = "Found on Google: ${serpResult.businessName} ($discoveredPhone)"
+        } else {
+            onStatusUpdate("1/5 Validated phone ($initialPhone). Skipping Google Search.")
+            serpSummary = if (deviceContactName.isNotBlank()) {
+                "Device contact: $deviceContactName ($initialPhone)"
+            } else {
+                "Direct phone: $initialPhone"
+            }
         }
 
         val businessName = serpResult.businessName.ifBlank { parseBusinessName(rawPrompt) }
         val address = serpResult.address
 
         // Step 2: Groq AI Synthesis & Prompt Refinement (For ALL calls)
-        onStatusUpdate("2/5 Groq AI 120B Refining Prompt & Business Intent...")
+        onStatusUpdate("2/5 Groq AI Refining Prompt & Business Intent...")
         val groqRefinement = synthesizeWithGroq(
             userPrompt = rawPrompt,
             discoveredPhone = discoveredPhone.ifBlank { initialPhone },
@@ -74,10 +88,12 @@ class SmartCallResolver(
             snippetInfo = serpResult.snippetInfo
         )
 
+        // Fix Issue #1: Explicitly supplied initialPhone (or discovered phone) takes priority over LLM output
         val finalPhone = when {
-            groqRefinement.phone.isNotBlank() && groqRefinement.phone.length >= 10 -> groqRefinement.phone
+            initialPhone.isNotBlank() && initialPhone.length >= 10 -> initialPhone
             discoveredPhone.isNotBlank() && discoveredPhone.length >= 10 -> discoveredPhone
-            else -> initialPhone
+            groqRefinement.phone.isNotBlank() && groqRefinement.phone.length >= 10 -> groqRefinement.phone
+            else -> ""
         }
 
         ResolvedCallInfo(
