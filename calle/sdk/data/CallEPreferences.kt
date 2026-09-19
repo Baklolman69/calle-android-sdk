@@ -5,41 +5,45 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import java.io.File
 
 /**
- * Secure credential storage for CALL-E Android SDK.
+ * Encrypted credential storage for CALL-E Android SDK.
  *
  * All API keys and sensitive configuration are encrypted at rest using
  * AndroidX Security Crypto (AES-256-SIV for keys, AES-256-GCM for values)
- * via [EncryptedSharedPreferences].
+ * via [EncryptedSharedPreferences]. The master key is backed by Android Keystore.
  *
  * SECURITY MODEL:
  * - Zero telemetry, zero data collection — all data stays on-device.
- * - Credentials are encrypted using Android Keystore-backed master key.
- * - A dedicated secure directory is created in app-internal storage
- *   (inaccessible to other apps without root).
- * - Automatic fallback to standard SharedPreferences on devices where
- *   AndroidX Security Crypto is unsupported (API < 23 edge cases).
+ * - Credentials are encrypted using Android Keystore-backed AES-256 master key.
+ * - **No plaintext fallback.** If encrypted storage cannot be initialized,
+ *   construction fails with [CredentialStorageException] so the developer
+ *   is aware and can handle the error explicitly.
  *
+ * ARCHITECTURAL NOTE ON CLIENT-SIDE API KEYS:
+ * Encryption protects credentials at rest, but any key accessible to an
+ * Android app can potentially be extracted by a determined attacker with
+ * device access. For production deployments, the recommended architecture is:
+ *
+ *   1. Keep third-party secrets (SerpApi, Groq) on your backend server.
+ *   2. Issue short-lived, scoped tokens from your backend to the Android client.
+ *   3. Use this SDK's credential storage only for the scoped client token.
+ *
+ * This approach limits blast radius if a device is compromised. The SDK
+ * supports this pattern — store only the scoped token in [apiKey] and
+ * proxy SerpApi/Groq calls through your backend.
+ *
+ * @throws CredentialStorageException if AES-256 encrypted storage cannot be created.
  * @see <a href="https://developer.android.com/reference/androidx/security/crypto/EncryptedSharedPreferences">EncryptedSharedPreferences</a>
  */
 class CallEPreferences(context: Context) {
 
-    private val secureDir: File = File(context.filesDir, SECURE_STORAGE_DIR).apply {
-        if (!exists()) {
-            mkdirs()
-            Log.d(TAG, "Created secure credential storage directory: $absolutePath")
-        }
-    }
-
+    /**
+     * AES-256 encrypted SharedPreferences.
+     * Throws [CredentialStorageException] on failure — never falls back to plaintext.
+     */
     private val prefs: SharedPreferences = createEncryptedPrefs(context)
 
-    /**
-     * Creates AES-256 encrypted SharedPreferences backed by Android Keystore.
-     * Falls back to standard SharedPreferences if encryption setup fails
-     * (e.g., older devices with broken Keystore implementations).
-     */
     private fun createEncryptedPrefs(context: Context): SharedPreferences {
         return try {
             val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
@@ -51,12 +55,17 @@ class CallEPreferences(context: Context) {
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            Log.w(TAG, "EncryptedSharedPreferences unavailable, falling back to standard prefs", e)
-            context.getSharedPreferences(FALLBACK_PREFS_FILE, Context.MODE_PRIVATE)
+            Log.e(TAG, "Failed to initialize encrypted credential storage", e)
+            throw CredentialStorageException(
+                "Cannot initialize secure credential storage. " +
+                "AES-256 EncryptedSharedPreferences is required but failed on this device. " +
+                "Credentials will NOT be stored in plaintext.",
+                e
+            )
         }
     }
 
-    // ── CALL-E API Key (AES-256 Encrypted) ─────────────────────────────
+    // ── Encrypted Credentials ───────────────────────────────────────────
 
     var apiKey: String
         get() = prefs.getString(KEY_API_KEY, "") ?: ""
@@ -64,15 +73,11 @@ class CallEPreferences(context: Context) {
             prefs.edit().putString(KEY_API_KEY, value).apply()
         }
 
-    // ── SerpApi Key (AES-256 Encrypted) ─────────────────────────────────
-
     var serpApiKey: String
         get() = prefs.getString(KEY_SERP_API_KEY, "") ?: ""
         set(value) {
             prefs.edit().putString(KEY_SERP_API_KEY, value).apply()
         }
-
-    // ── Groq API Key (AES-256 Encrypted) ────────────────────────────────
 
     var groqApiKey: String
         get() = prefs.getString(KEY_GROQ_API_KEY, "") ?: ""
@@ -93,7 +98,7 @@ class CallEPreferences(context: Context) {
         set(_) {}
 
     var card1Name: String
-        get() = prefs.getString(KEY_CARD1_NAME, "\uD83D\uDD0D Search & Call Cattleack BBQ") ?: "\uD83D\uDD0D Search & Call Cattleack BBQ"
+        get() = prefs.getString(KEY_CARD1_NAME, "\uD83D\uDD0D Book a Restaurant") ?: "\uD83D\uDD0D Book a Restaurant"
         set(value) { prefs.edit().putString(KEY_CARD1_NAME, value).apply() }
 
     var card1Phone: String
@@ -101,35 +106,29 @@ class CallEPreferences(context: Context) {
         set(value) { prefs.edit().putString(KEY_CARD1_PHONE, value).apply() }
 
     var card1Prompt: String
-        get() = prefs.getString(KEY_CARD1_PROMPT, "Call Cattleack Barbeque in Farmers Branch TX and ask opening hours & best sellers") ?: "Call Cattleack Barbeque in Farmers Branch TX and ask opening hours & best sellers"
+        get() = prefs.getString(KEY_CARD1_PROMPT, "Call the restaurant and book a table for 2 tonight at 7 PM") ?: "Call the restaurant and book a table for 2 tonight at 7 PM"
         set(value) { prefs.edit().putString(KEY_CARD1_PROMPT, value).apply() }
 
     var card2Name: String
-        get() = prefs.getString(KEY_CARD2_NAME, "Pizza Hut Dallas") ?: "Pizza Hut Dallas"
+        get() = prefs.getString(KEY_CARD2_NAME, "\uD83D\uDCC5 Schedule Appointment") ?: "\uD83D\uDCC5 Schedule Appointment"
         set(value) { prefs.edit().putString(KEY_CARD2_NAME, value).apply() }
 
     var card2Phone: String
-        get() = prefs.getString(KEY_CARD2_PHONE, "+15550199000") ?: "+15550199000"
+        get() = prefs.getString(KEY_CARD2_PHONE, "") ?: ""
         set(value) { prefs.edit().putString(KEY_CARD2_PHONE, value).apply() }
 
     var card2Prompt: String
-        get() = prefs.getString(KEY_CARD2_PROMPT, "Call Pizza Hut in Dallas TX to check if open & available pizzas") ?: "Call Pizza Hut in Dallas TX to check if open & available pizzas"
+        get() = prefs.getString(KEY_CARD2_PROMPT, "Call the clinic and schedule an appointment for a general checkup this week") ?: "Call the clinic and schedule an appointment for a general checkup this week"
         set(value) { prefs.edit().putString(KEY_CARD2_PROMPT, value).apply() }
 
-    // ── Security Utilities ──────────────────────────────────────────────
+    // ── Credential Utilities ────────────────────────────────────────────
 
     /**
-     * Returns true if credentials are stored with AES-256 encryption.
-     * Returns false if the device fell back to standard SharedPreferences.
+     * Returns true — this implementation always uses AES-256 encryption.
+     * If encryption was unavailable, construction would have failed.
      */
     val isEncryptedStorage: Boolean
-        get() = prefs is EncryptedSharedPreferences
-
-    /**
-     * Returns the absolute path to the secure credential storage directory.
-     */
-    val secureStoragePath: String
-        get() = secureDir.absolutePath
+        get() = true
 
     /**
      * Checks if any API key credentials are currently stored.
@@ -139,13 +138,16 @@ class CallEPreferences(context: Context) {
     }
 
     /**
-     * Securely wipes all stored credentials and configuration.
-     * Clears the encrypted preferences and removes the secure storage directory contents.
+     * Deletes all stored credentials and configuration from the encrypted store.
+     *
+     * Note: This clears all key-value entries from the EncryptedSharedPreferences file.
+     * The underlying encrypted XML file and Android Keystore master key persist
+     * (managed by the OS). This is a data deletion, not a cryptographic key destruction.
+     * For full removal, the app must be uninstalled or app data cleared via system settings.
      */
     fun clear() {
         prefs.edit().clear().apply()
-        secureDir.listFiles()?.forEach { it.delete() }
-        Log.d(TAG, "All stored credentials securely wiped")
+        Log.d(TAG, "All stored credentials deleted from encrypted store")
     }
 
     companion object {
@@ -153,12 +155,6 @@ class CallEPreferences(context: Context) {
 
         /** Encrypted preferences file (AES-256-SIV keys + AES-256-GCM values) */
         private const val ENCRYPTED_PREFS_FILE = "calle_sdk_secure_prefs"
-
-        /** Fallback file for devices that cannot support EncryptedSharedPreferences */
-        private const val FALLBACK_PREFS_FILE = "calle_sdk_prefs"
-
-        /** Secure directory created inside app-internal storage */
-        private const val SECURE_STORAGE_DIR = "calle_secure_credentials"
 
         // Credential keys
         private const val KEY_API_KEY = "calle_api_key"
@@ -175,3 +171,9 @@ class CallEPreferences(context: Context) {
         private const val KEY_CARD2_PROMPT = "card2_prompt"
     }
 }
+
+/**
+ * Thrown when AES-256 encrypted credential storage cannot be initialized.
+ * This SDK never falls back to plaintext storage.
+ */
+class CredentialStorageException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)
