@@ -63,7 +63,9 @@ class CallEClient(
                 json(jsonInstance)
             }
             install(Logging) {
-                logger = Logger.DEFAULT
+                logger = object : Logger {
+                    override fun log(message: String) {}
+                }
                 // Issue #3 Fix: Use LogLevel.NONE to avoid logging PII payload bodies or auth headers
                 level = LogLevel.NONE
             }

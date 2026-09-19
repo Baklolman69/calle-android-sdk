@@ -59,18 +59,33 @@ data class CallRequest(
     }
 }
 
+private val E164_REGEX = Regex("""^\+[1-9]\d{7,14}$""")
+
 /**
- * Sanitizes phone numbers into E.164 format (+1XXXXXXXXXX).
+ * Validates whether a given phone string conforms strictly to ITU-T E.164 format.
+ * Format: +<country_code><national_number> (total length 8 to 15 digits, starting with country code 1-9).
+ */
+fun isValidE164Phone(phone: String): Boolean {
+    return phone.isNotBlank() && E164_REGEX.matches(phone)
+}
+
+/**
+ * Sanitizes phone numbers into strict E.164 format (+1XXXXXXXXXX).
+ * Returns an empty string if the raw input cannot be parsed into a valid E.164 number.
  */
 fun sanitizeE164Phone(rawPhone: String): String {
     val clean = rawPhone.filter { it.isDigit() || it == '+' }
     if (clean.isBlank()) return ""
-    return when {
+
+    val candidate = when {
         clean.startsWith("+") -> clean
         clean.length == 10 -> "+1$clean"
         clean.length == 11 && clean.startsWith("1") -> "+$clean"
-        else -> "+$clean"
+        clean.length in 8..15 -> "+$clean"
+        else -> ""
     }
+
+    return if (isValidE164Phone(candidate)) candidate else ""
 }
 
 /**
@@ -192,3 +207,4 @@ enum class CallEStatus {
     SUCCESS,
     FAILED
 }
+
