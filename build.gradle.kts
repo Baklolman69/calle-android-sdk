@@ -40,6 +40,7 @@ android {
 
 dependencies {
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.security.crypto)
     
     // Ktor Client
     implementation(libs.ktor.client.core)
