@@ -165,6 +165,26 @@ For complete class specifications, data models, error handling, and Wear OS guid
 
 ---
 
+## ⚠️ Disclaimer & Privacy
+
+> **Zero Telemetry · Zero Data Collection · Full Developer Control**
+
+This SDK operates with **zero telemetry and zero data collection**. All API credentials are stored **locally on-device only** — no user data, analytics, device identifiers, or usage metrics are ever collected, transmitted, or processed by this SDK.
+
+This SDK integrates with the following **third-party services** only when explicitly invoked by your application code:
+
+| Service | Purpose | Privacy & Terms |
+|---|---|---|
+| **[CALL-E](https://heycall-e.com)** | AI voice call dispatch & transcripts | [Privacy](https://heycall-e.com/privacy) · [Terms](https://heycall-e.com/terms) |
+| **[SerpApi](https://serpapi.com)** | Optional Google Search phone lookup | [Privacy](https://serpapi.com/privacy-policy) · [Terms](https://serpapi.com/terms-of-service) |
+| **[Groq](https://groq.com)** | Optional LLM prompt refinement | [Privacy](https://groq.com/privacy-policy) · [Terms](https://groq.com/terms-of-use) |
+
+This SDK is provided **"AS IS"** without warranty of any kind. The maintainers and contributors are **not responsible** for any data loss, data leakage, security breaches, or damages arising from the use or misconfiguration of this SDK or any integrated third-party service. Developers are solely responsible for securing their own API credentials, obtaining user consent, and complying with all applicable laws and regulations.
+
+📄 **[Full Privacy Policy](PRIVACY.md)** · 📋 **[Full Terms of Use](TERMS.md)**
+
+---
+
 ## 📄 License
 
 Licensed under the [MIT License](LICENSE).
