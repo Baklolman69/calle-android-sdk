@@ -29,10 +29,6 @@ import androidx.security.crypto.MasterKeys
  *   2. Issue short-lived, scoped tokens from your backend to the Android client.
  *   3. Use this SDK's credential storage only for the scoped client token.
  *
- * This approach limits blast radius if a device is compromised. The SDK
- * supports this pattern — store only the scoped token in [apiKey] and
- * proxy SerpApi/Groq calls through your backend.
- *
  * @throws CredentialStorageException if AES-256 encrypted storage cannot be created.
  * @see <a href="https://developer.android.com/reference/androidx/security/crypto/EncryptedSharedPreferences">EncryptedSharedPreferences</a>
  */
@@ -88,38 +84,13 @@ class CallEPreferences(context: Context) {
     // ── Non-sensitive Configuration ─────────────────────────────────────
 
     var defaultPhoneNumber: String
-        get() = prefs.getString(KEY_DEFAULT_PHONE, "+15550192834") ?: "+15550192834"
+        get() = prefs.getString(KEY_DEFAULT_PHONE, "") ?: ""
         set(value) {
             prefs.edit().putString(KEY_DEFAULT_PHONE, value).apply()
         }
 
-    var isSetupComplete: Boolean
+    val isSetupComplete: Boolean
         get() = apiKey.isNotBlank()
-        set(_) {}
-
-    var card1Name: String
-        get() = prefs.getString(KEY_CARD1_NAME, "\uD83D\uDD0D Book a Restaurant") ?: "\uD83D\uDD0D Book a Restaurant"
-        set(value) { prefs.edit().putString(KEY_CARD1_NAME, value).apply() }
-
-    var card1Phone: String
-        get() = prefs.getString(KEY_CARD1_PHONE, "") ?: ""
-        set(value) { prefs.edit().putString(KEY_CARD1_PHONE, value).apply() }
-
-    var card1Prompt: String
-        get() = prefs.getString(KEY_CARD1_PROMPT, "Call the restaurant and book a table for 2 tonight at 7 PM") ?: "Call the restaurant and book a table for 2 tonight at 7 PM"
-        set(value) { prefs.edit().putString(KEY_CARD1_PROMPT, value).apply() }
-
-    var card2Name: String
-        get() = prefs.getString(KEY_CARD2_NAME, "\uD83D\uDCC5 Schedule Appointment") ?: "\uD83D\uDCC5 Schedule Appointment"
-        set(value) { prefs.edit().putString(KEY_CARD2_NAME, value).apply() }
-
-    var card2Phone: String
-        get() = prefs.getString(KEY_CARD2_PHONE, "") ?: ""
-        set(value) { prefs.edit().putString(KEY_CARD2_PHONE, value).apply() }
-
-    var card2Prompt: String
-        get() = prefs.getString(KEY_CARD2_PROMPT, "Call the clinic and schedule an appointment for a general checkup this week") ?: "Call the clinic and schedule an appointment for a general checkup this week"
-        set(value) { prefs.edit().putString(KEY_CARD2_PROMPT, value).apply() }
 
     // ── Credential Utilities ────────────────────────────────────────────
 
@@ -139,11 +110,6 @@ class CallEPreferences(context: Context) {
 
     /**
      * Deletes all stored credentials and configuration from the encrypted store.
-     *
-     * Note: This clears all key-value entries from the EncryptedSharedPreferences file.
-     * The underlying encrypted XML file and Android Keystore master key persist
-     * (managed by the OS). This is a data deletion, not a cryptographic key destruction.
-     * For full removal, the app must be uninstalled or app data cleared via system settings.
      */
     fun clear() {
         prefs.edit().clear().apply()
@@ -163,12 +129,6 @@ class CallEPreferences(context: Context) {
 
         // Non-sensitive config keys
         private const val KEY_DEFAULT_PHONE = "calle_default_phone"
-        private const val KEY_CARD1_NAME = "card1_name"
-        private const val KEY_CARD1_PHONE = "card1_phone"
-        private const val KEY_CARD1_PROMPT = "card1_prompt"
-        private const val KEY_CARD2_NAME = "card2_name"
-        private const val KEY_CARD2_PHONE = "card2_phone"
-        private const val KEY_CARD2_PROMPT = "card2_prompt"
     }
 }
 

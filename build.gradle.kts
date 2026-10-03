@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.compose.compiler)
+    `maven-publish`
 }
 
 android {
@@ -36,6 +37,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+        }
+    }
 }
 
 dependencies {
@@ -59,4 +66,17 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
 
     testImplementation(libs.junit)
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+                groupId = "com.github.Baklolman69"
+                artifactId = "calle-android-sdk"
+                version = "1.0.0"
+            }
+        }
+    }
 }

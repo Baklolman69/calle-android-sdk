@@ -17,7 +17,8 @@ data class ResolvedCallInfo(
 
 class SmartCallResolver(
     private val serpApiKey: String = "",
-    private val groqApiKey: String = ""
+    private val groqApiKey: String = "",
+    private val groqModel: String = "llama-3.3-70b-versatile"
 ) {
     private val serpClient = SerpApiClient(serpApiKey)
 
@@ -120,7 +121,15 @@ class SmartCallResolver(
         address: String,
         snippetInfo: String
     ): GroqRefinementResult {
-        val modelsToTry = listOf("gpt-oss-120b", "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+        if (groqApiKey.isBlank()) {
+            return buildFallbackResult(userPrompt, discoveredPhone, businessName, address)
+        }
+
+        val modelsToTry = linkedSetOf(
+            groqModel,
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
+        ).toList()
 
         for (modelName in modelsToTry) {
             try {
@@ -130,8 +139,8 @@ class SmartCallResolver(
                     setRequestProperty("Authorization", "Bearer $groqApiKey")
                     setRequestProperty("Content-Type", "application/json")
                     doOutput = true
-                    connectTimeout = 12000
-                    readTimeout = 12000
+                    connectTimeout = 10000
+                    readTimeout = 10000
                 }
 
                 val systemPrompt = """
@@ -188,7 +197,15 @@ class SmartCallResolver(
             } catch (_: Exception) {}
         }
 
-        // Fallback refinement if Groq fails or returns raw text
+        return buildFallbackResult(userPrompt, discoveredPhone, businessName, address)
+    }
+
+    private fun buildFallbackResult(
+        userPrompt: String,
+        discoveredPhone: String,
+        businessName: String,
+        address: String
+    ): GroqRefinementResult {
         val phone = sanitizeE164Phone(discoveredPhone)
         val cleanUser = if (userPrompt.startsWith("Call ", ignoreCase = true)) userPrompt.substring(5).trim() else userPrompt
         val fallbackPrompt = if (phone.isNotBlank()) {

@@ -7,20 +7,21 @@
 
 **`calle-android-sdk`** is the native Kotlin SDK for integrating [CALL-E](https://heycall-e.com) AI voice call agents into Android and Wear OS applications.
 
-All clean SDK files are available directly under [`calle/sdk/`](calle/sdk) for 1-click integration in any Android Studio project.
+All clean SDK files are located under [`src/main/kotlin/com/calle/sdk`](src/main/kotlin/com/calle/sdk) for seamless Gradle dependency integration or direct copy-paste into any Android project.
 
 ---
 
-## 📂 SDK Package Structure (`calle/sdk`)
+## 📂 SDK Package Structure
 
 ```
-calle/sdk/
-├── CallEClient.kt          # Core CALL-E REST API Client & Demo Mode
+src/main/kotlin/com/calle/sdk/
+├── CallEClient.kt          # Core CALL-E REST API Client, Reactive Flow & Demo Mode
 ├── GroqClient.kt           # Groq Cloud LLM Prompt Refinement
 ├── data/
 │   ├── SmartCallResolver.kt # SerpApi Google Search + Groq Intent Resolver
 │   ├── SerpApiClient.kt     # Google Business & Phone Lookup
-│   └── CallEPreferences.kt  # Secure Persistence Helper
+│   ├── DeviceContactResolver.kt # Local Device Contacts Provider
+│   └── CallEPreferences.kt  # AndroidX AES-256 Encrypted Keystore Storage
 ├── models/
 │   └── CallEModels.kt       # CallRequest, CallResponse & Transcript Models
 └── ui/
@@ -31,28 +32,7 @@ calle/sdk/
 
 ## ⚡ 2-Minute Quick Integration Guide
 
-### Option 1: Drag & Drop `calle/sdk` (Instant 1-Click Copy)
-
-1. Copy the [`calle/sdk`](calle/sdk) folder from this repository.
-2. Paste it directly into your Android app's source directory:
-   `app/src/main/java/com/calle/sdk`
-3. Add Ktor and Serialization dependencies to your app's `build.gradle.kts`:
-
-```kotlin
-dependencies {
-    // Ktor Client (Android Engine)
-    implementation("io.ktor:ktor-client-core:2.3.8")
-    implementation("io.ktor:ktor-client-android:2.3.8")
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.8")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.8")
-    implementation("io.ktor:ktor-client-logging:2.3.8")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-}
-```
-
----
-
-### Option 2: Gradle / JitPack Dependency
+### Option 1: Gradle / JitPack Dependency (Recommended)
 
 Add JitPack to your `settings.gradle.kts`:
 
@@ -66,11 +46,33 @@ dependencyResolutionManagement {
 }
 ```
 
-Add the dependency to your module's `build.gradle.kts`:
+Add the dependency to your app module's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
     implementation("com.github.Baklolman69:calle-android-sdk:1.0.0")
+}
+```
+
+---
+
+### Option 2: Drag & Drop Source Files
+
+1. Copy the [`src/main/kotlin/com/calle/sdk`](src/main/kotlin/com/calle/sdk) directory from this repository.
+2. Paste it directly into your Android app's source directory:
+   `app/src/main/java/com/calle/sdk`
+3. Add Ktor and Serialization dependencies to your app's `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    // Ktor Client (Android Engine)
+    implementation("io.ktor:ktor-client-core:2.3.12")
+    implementation("io.ktor:ktor-client-android:2.3.12")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
+    implementation("io.ktor:ktor-client-logging:2.3.12")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
 ```
 
@@ -102,9 +104,27 @@ lifecycleScope.launch {
 
 ---
 
-### 2. Smart Business Resolution (No Phone Number Required!)
+### 2. Reactive Live Call Tracking (`Flow`)
 
-If your user only types or speaks a business name, use `SmartCallResolver` to look up the business phone number automatically on Google via SerpApi:
+Track call lifecycle transitions in real-time (`DISPATCHING` -> `CALL_IN_PROGRESS` -> `SUCCESS`):
+
+```kotlin
+lifecycleScope.launch {
+    client.pollCallStatus(callId = "call_123456", pollIntervalMs = 2000L)
+        .collect { response ->
+            println("Status update: ${response.status}")
+            if (response.status == "SUCCESS") {
+                println("Summary: ${response.bestSummary}")
+            }
+        }
+}
+```
+
+---
+
+### 3. Smart Business Resolution (No Phone Number Required!)
+
+If your user only types or speaks a business name, use `SmartCallResolver` to look up the business phone number automatically on Google via SerpApi and refine the prompt via Groq:
 
 ```kotlin
 import com.calle.sdk.data.SmartCallResolver
@@ -127,7 +147,7 @@ lifecycleScope.launch {
 
 ---
 
-### 3. Fetch Real-time Audio Transcript
+### 4. Fetch Real-time Audio Transcript
 
 ```kotlin
 lifecycleScope.launch {
@@ -145,7 +165,7 @@ lifecycleScope.launch {
 
 ---
 
-### 4. Jetpack Compose Animated Status Badge
+### 5. Jetpack Compose Animated Status Badge
 
 ```kotlin
 import com.calle.sdk.ui.CallEStatusBadge
