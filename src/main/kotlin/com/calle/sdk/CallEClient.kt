@@ -19,6 +19,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import java.io.IOException
 import java.net.SocketTimeoutException
@@ -183,6 +185,37 @@ class CallEClient(
             val mappedException = mapNetworkOrUnknownException(e)
             android.util.Log.e("CallEClient", "getCallStatus failed for $callId: ${mappedException.message}")
             Result.failure(mappedException)
+        }
+    }
+
+    /**
+     * Polls the live status of an active call run until it reaches a terminal state (SUCCESS or FAILED)
+     * or maximum attempts are reached, emitting each status update as a reactive Flow.
+     *
+     * @param callId The ID of the call to track.
+     * @param pollIntervalMs Interval between status queries in milliseconds (default: 2000ms).
+     * @param maxAttempts Maximum polling iterations before stopping (default: 60, approx 2 minutes).
+     */
+    fun pollCallStatus(
+        callId: String,
+        pollIntervalMs: Long = 2000L,
+        maxAttempts: Int = 60
+    ): Flow<CallResponse> = flow {
+        var attempts = 0
+        while (attempts < maxAttempts) {
+            val statusResult = getCallStatus(callId)
+            if (statusResult.isSuccess) {
+                val response = statusResult.getOrThrow()
+                emit(response)
+                val statusUpper = response.status.uppercase()
+                if (statusUpper == CallEStatus.SUCCESS.name || statusUpper == CallEStatus.FAILED.name) {
+                    break
+                }
+            } else {
+                throw statusResult.exceptionOrNull() ?: Exception("Polling status failed for call $callId")
+            }
+            attempts++
+            delay(pollIntervalMs)
         }
     }
 

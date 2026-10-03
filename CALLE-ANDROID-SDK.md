@@ -7,20 +7,21 @@
 
 **`calle-android-sdk`** is the official Kotlin SDK for integrating [CALL-E](https://heycall-e.com) AI voice agents into native Android and Wear OS applications.
 
-All SDK files are accessible under the [`calle/sdk`](file:///c:/Users/ravis/Downloads/WristCallAI-main/WristCallAI-main/calle-android/calle/sdk) package for drag-and-drop or Gradle module inclusion.
+All SDK files are accessible under the [`src/main/kotlin/com/calle/sdk`](src/main/kotlin/com/calle/sdk) package for drag-and-drop or Gradle module inclusion.
 
 ---
 
-## 📂 Package Directory Structure (`calle/sdk`)
+## 📂 Package Directory Structure
 
 ```
-calle/sdk/
+src/main/kotlin/com/calle/sdk/
 ├── CallEClient.kt          # Primary REST API Client & Simulation Bridge
-├── GroqClient.kt           # Groq AI 120B Client
+├── GroqClient.kt           # Groq AI LLM Client
 ├── data/
 │   ├── SmartCallResolver.kt # Business Search & Intent Synthesizer
 │   ├── SerpApiClient.kt     # Google Business Phone Lookup
-│   └── CallEPreferences.kt  # Settings & Key Persistence
+│   ├── DeviceContactResolver.kt # Device Contacts Provider
+│   └── CallEPreferences.kt  # Android Keystore AES-256 Storage
 ├── models/
 │   └── CallEModels.kt       # API Data Transfer Objects & Enums
 └── ui/
@@ -52,8 +53,8 @@ sequenceDiagram
     Telecom-->>Client: CallResponse (Call ID, Status: DISPATCHING)
     Client-->>App: Result.success(CallResponse)
 
-    loop Call Lifecycle Polling
-        App->>Client: getCallStatus(callId)
+    loop Call Lifecycle Polling (or Reactive Flow)
+        App->>Client: getCallStatus(callId) or pollCallStatus(callId)
         Client->>Telecom: GET /v1/calls/{callId}
         Telecom-->>Client: CallResponse (Status: CALL_IN_PROGRESS / SUCCESS)
     end
@@ -66,24 +67,7 @@ sequenceDiagram
 
 ## 📦 Integration Options
 
-### Option A: Drag & Drop Package (`calle/sdk`)
-
-1. Copy the [`calle/sdk`](file:///c:/Users/ravis/Downloads/WristCallAI-main/WristCallAI-main/calle-android/calle/sdk) directory.
-2. Paste it into your project at `src/main/java/com/calle/sdk`.
-3. Add Ktor and Serialization dependencies to `build.gradle.kts`:
-
-```kotlin
-dependencies {
-    implementation("io.ktor:ktor-client-core:2.3.8")
-    implementation("io.ktor:ktor-client-android:2.3.8")
-    implementation("io.ktor:ktor-client-content-negotiation:2.3.8")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.8")
-    implementation("io.ktor:ktor-client-logging:2.3.8")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
-}
-```
-
-### Option B: Gradle / JitPack Integration
+### Option A: Gradle / JitPack Integration (Recommended)
 
 ```kotlin
 // settings.gradle.kts
@@ -98,6 +82,24 @@ dependencyResolutionManagement {
 // app/build.gradle.kts
 dependencies {
     implementation("com.github.Baklolman69:calle-android-sdk:1.0.0")
+}
+```
+
+### Option B: Drag & Drop Package
+
+1. Copy the [`src/main/kotlin/com/calle/sdk`](src/main/kotlin/com/calle/sdk) directory.
+2. Paste it into your project at `src/main/java/com/calle/sdk` or `src/main/kotlin/com/calle/sdk`.
+3. Add Ktor and Serialization dependencies to `build.gradle.kts`:
+
+```kotlin
+dependencies {
+    implementation("io.ktor:ktor-client-core:2.3.12")
+    implementation("io.ktor:ktor-client-android:2.3.12")
+    implementation("io.ktor:ktor-client-content-negotiation:2.3.12")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:2.3.12")
+    implementation("io.ktor:ktor-client-logging:2.3.12")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 }
 ```
 
@@ -136,7 +138,18 @@ result.onSuccess { response ->
 }
 ```
 
-### 3. Business Phone Discovery (`SmartCallResolver`)
+### 3. Reactive Real-time Tracking (`Flow`)
+
+```kotlin
+lifecycleScope.launch {
+    client.pollCallStatus(callId = "call_123456")
+        .collect { response ->
+            println("Call Status: ${response.status}")
+        }
+}
+```
+
+### 4. Business Phone Discovery (`SmartCallResolver`)
 
 ```kotlin
 import com.calle.sdk.data.SmartCallResolver
@@ -151,7 +164,7 @@ val request = CallRequest(info.phone, info.refinedPrompt)
 client.dispatchCall(request)
 ```
 
-### 4. Fetching Audio Transcripts
+### 5. Fetching Audio Transcripts
 
 ```kotlin
 val transcriptResult = client.getTranscript("call_123456")
