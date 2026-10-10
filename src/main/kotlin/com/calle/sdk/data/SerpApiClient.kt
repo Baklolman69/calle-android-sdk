@@ -25,18 +25,24 @@ class SerpApiClient(
     private val apiKey: String = ""
 ) {
     suspend fun searchBusiness(query: String): SerpSearchResult = withContext(Dispatchers.IO) {
+        if (apiKey.isBlank()) {
+            return@withContext SerpSearchResult(snippetInfo = "SerpApi search skipped: missing API key.")
+        }
+        var connection: HttpURLConnection? = null
         try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val apiUrl = "https://serpapi.com/search.json?q=$encodedQuery&api_key=$apiKey&engine=google"
+            val encodedApiKey = URLEncoder.encode(apiKey, "UTF-8")
+            val apiUrl = "https://serpapi.com/search.json?q=$encodedQuery&api_key=$encodedApiKey&engine=google"
 
-            val connection = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
+            val conn = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 12000
                 readTimeout = 12000
             }
+            connection = conn
 
-            if (connection.responseCode in 200..299) {
-                val jsonText = connection.inputStream.bufferedReader().use { it.readText() }
+            if (conn.responseCode in 200..299) {
+                val jsonText = conn.inputStream.bufferedReader().use { it.readText() }
                 val root = JSONObject(jsonText)
 
                 var foundPhone = ""
@@ -88,10 +94,16 @@ class SerpApiClient(
                     snippetInfo = snippets.joinToString(" ")
                 )
             } else {
-                SerpSearchResult(snippetInfo = "SerpApi HTTP ${connection.responseCode}")
+                val errorMsg = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                SerpSearchResult(snippetInfo = "SerpApi HTTP ${conn.responseCode}: ${errorMsg.take(100)}")
             }
         } catch (e: Exception) {
             SerpSearchResult(snippetInfo = e.message ?: "SerpApi search failed")
+        } finally {
+            try {
+                connection?.errorStream?.close()
+            } catch (_: Exception) {}
+            connection?.disconnect()
         }
     }
 }

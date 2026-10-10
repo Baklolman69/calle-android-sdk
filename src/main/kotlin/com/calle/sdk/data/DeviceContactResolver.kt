@@ -36,7 +36,9 @@ class DeviceContactResolver {
     fun searchContact(context: Context, nameQuery: String): DeviceContactInfo? {
         if (!hasPermission(context) || nameQuery.isBlank()) return null
 
-        val cleanQuery = nameQuery.trim()
+        val cleanQuery = nameQuery.trim().replace("%", "").replace("_", "")
+        if (cleanQuery.isBlank()) return null
+
         val projection = arrayOf(
             ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
             ContactsContract.CommonDataKinds.Phone.NUMBER
@@ -85,11 +87,13 @@ class DeviceContactResolver {
             clean = clean.substring(5).trim()
         }
         val delimiters = listOf(" and ", " to ", " for ", " at ", " in ", " regarding ", " about ")
-        for (delimiter in delimiters) {
-            val idx = clean.indexOf(delimiter, ignoreCase = true)
-            if (idx > 0) {
-                return clean.substring(0, idx).trim()
-            }
+        val minIdx = delimiters
+            .map { clean.indexOf(it, ignoreCase = true) }
+            .filter { it > 0 }
+            .minOrNull()
+
+        if (minIdx != null) {
+            return clean.substring(0, minIdx).trim()
         }
         return clean.take(30)
     }

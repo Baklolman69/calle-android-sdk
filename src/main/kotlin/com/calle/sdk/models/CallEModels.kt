@@ -65,8 +65,7 @@ data class CallRequest(
      */
     fun cleanInstructions(): String {
         var prompt = promptInstructions.trim()
-        val phoneRegex = Regex("""\+?\d{10,15}""")
-        val extractedPhone = phoneRegex.find(prompt)?.value ?: ""
+        val extractedPhone = FORMATTED_PHONE_REGEX.find(prompt)?.value ?: ""
         if (extractedPhone.isNotBlank()) {
             prompt = prompt.replace(extractedPhone, "").trim()
         }
@@ -75,13 +74,15 @@ data class CallRequest(
             prompt = prompt.substring(5).trim()
         }
 
+        if (prompt.startsWith("and ", ignoreCase = true)) {
+            prompt = prompt.substring(4).trim()
+        }
+
         val actionKeywords = listOf("ask", "check", "inquire", "order", "book", "reserve", "find out", "tell", "request", "get", "when", "what", "how", "verify")
         val hasAction = actionKeywords.any { prompt.contains(it, ignoreCase = true) }
 
         return if (!hasAction && prompt.isNotBlank()) {
             "Ask $prompt regarding business hours, services offered, and general inquiries."
-        } else if (prompt.startsWith("and ", ignoreCase = true)) {
-            prompt.substring(4).trim()
         } else {
             prompt.ifBlank { "Inquire about business details and services." }
         }
@@ -100,6 +101,11 @@ data class CallRequest(
         }
     }
 }
+
+/**
+ * Matches common international and national phone formats including punctuated variants.
+ */
+val FORMATTED_PHONE_REGEX = Regex("""(?:\+?\d{1,3}[\s-]?)?\(?\d{2,4}\)?[\s.-]?\d{3,4}[\s.-]?\d{3,5}|\+?\d{8,15}""")
 
 private val E164_REGEX = Regex("""^\+[1-9]\d{7,14}$""")
 

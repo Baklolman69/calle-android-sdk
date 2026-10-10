@@ -38,8 +38,7 @@ class SmartCallResolver(
         forceSearch: Boolean = false,
         onStatusUpdate: (String) -> Unit = {}
     ): ResolvedCallInfo = withContext(Dispatchers.IO) {
-        val phoneRegex = Regex("""\+?\d{10,15}""")
-        val phoneInPrompt = phoneRegex.find(rawPrompt)?.value ?: ""
+        val phoneInPrompt = com.calle.sdk.models.FORMATTED_PHONE_REGEX.find(rawPrompt)?.value ?: ""
         var initialPhone = sanitizeE164Phone(providedPhone.ifBlank { phoneInPrompt })
 
         var deviceContactName = ""
@@ -82,11 +81,14 @@ class SmartCallResolver(
         val businessName = serpResult.businessName.ifBlank { parseBusinessName(rawPrompt) }
         val address = serpResult.address
 
-        // Step 2: Groq AI Synthesis & Task Refinement (For ALL calls)
+        // Step 2: Groq AI Synthesis & Task Refinement
+        // PRIVACY GUARD: Never leak device contact phone numbers to external third-party LLMs
+        val phoneForSynthesis = if (deviceContactName.isNotBlank()) "" else discoveredPhone.ifBlank { initialPhone }
+
         onStatusUpdate("2/5 Groq AI Refining Task & Business Intent...")
         val groqRefinement = synthesizeWithGroq(
             userPrompt = rawPrompt,
-            discoveredPhone = discoveredPhone.ifBlank { initialPhone },
+            discoveredPhone = phoneForSynthesis,
             businessName = businessName,
             address = address,
             snippetInfo = serpResult.snippetInfo
@@ -141,9 +143,10 @@ class SmartCallResolver(
         ).toList()
 
         for (modelName in modelsToTry) {
+            var connection: HttpURLConnection? = null
             try {
                 val url = URL("https://api.groq.com/openai/v1/chat/completions")
-                val connection = (url.openConnection() as HttpURLConnection).apply {
+                val conn = (url.openConnection() as HttpURLConnection).apply {
                     requestMethod = "POST"
                     setRequestProperty("Authorization", "Bearer $groqApiKey")
                     setRequestProperty("Content-Type", "application/json")
@@ -151,6 +154,7 @@ class SmartCallResolver(
                     connectTimeout = 10000
                     readTimeout = 10000
                 }
+                connection = conn
 
                 val systemPrompt = """
                     You are an expert voice agent assistant. Given a user's instruction and Google Search (SerpApi) results, output a clean JSON object:
@@ -184,16 +188,16 @@ class SmartCallResolver(
                     })
                 }
 
-                connection.outputStream.use { os ->
+                conn.outputStream.use { os ->
                     os.write(bodyJson.toString().toByteArray(Charsets.UTF_8))
                 }
 
-                if (connection.responseCode in 200..299) {
-                    val respText = connection.inputStream.bufferedReader().use { it.readText() }
+                if (conn.responseCode in 200..299) {
+                    val respText = conn.inputStream.bufferedReader().use { it.readText() }
                     val json = JSONObject(respText)
                     val content = json.getJSONArray("choices").getJSONObject(0).getJSONObject("message").getString("content")
 
-                    val jsonMatch = Regex("""\{.*\}""", RegexOption.DOT_MATCHES_ALL).find(content)?.value
+                    val jsonMatch = Regex("""\{[\s\S]*?\}""").find(content)?.value
                     if (jsonMatch != null) {
                         val parsed = JSONObject(jsonMatch)
                         val phone = sanitizeE164Phone(parsed.optString("phone", discoveredPhone))
@@ -208,7 +212,13 @@ class SmartCallResolver(
                         }
                     }
                 }
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+            } finally {
+                try {
+                    connection?.errorStream?.close()
+                } catch (_: Exception) {}
+                connection?.disconnect()
+            }
         }
 
         return buildFallbackResult(userPrompt, discoveredPhone, businessName, address)
@@ -225,10 +235,21 @@ class SmartCallResolver(
         if (cleanUser.startsWith("Call ", ignoreCase = true)) {
             cleanUser = cleanUser.substring(5).trim()
         }
+        var taskContent = cleanUser
+        if (businessName.isNotBlank() && taskContent.startsWith(businessName, ignoreCase = true)) {
+            taskContent = taskContent.substring(businessName.length).trim()
+            if (taskContent.startsWith("and ", ignoreCase = true)) taskContent = taskContent.substring(4).trim()
+            if (taskContent.startsWith("to ", ignoreCase = true)) taskContent = taskContent.substring(3).trim()
+            if (taskContent.startsWith("regarding ", ignoreCase = true)) taskContent = taskContent.substring(10).trim()
+            if (taskContent.startsWith("for ", ignoreCase = true)) taskContent = taskContent.substring(4).trim()
+        }
+
         val fallbackTask = if (businessName.isNotBlank() && address.isNotBlank()) {
-            "Ask $businessName at $address regarding $cleanUser."
+            "Ask $businessName at $address regarding $taskContent."
+        } else if (businessName.isNotBlank() && taskContent.isNotBlank()) {
+            "Ask $businessName regarding $taskContent."
         } else if (businessName.isNotBlank()) {
-            "Ask $businessName regarding $cleanUser."
+            "Ask $businessName regarding business details and services."
         } else {
             cleanUser.ifBlank { "Inquire about business details and services." }
         }

@@ -52,6 +52,7 @@ sealed class CallEException(message: String, cause: Throwable? = null) : Excepti
     class IncompleteInputException(val missingInputs: List<String>, message: String) : CallEException(message)
     class UnsupportedTargetException(val field: String?, message: String) : CallEException(message)
     class InvalidSchemaException(message: String) : CallEException(message)
+    class TimeoutException(val callId: String, message: String = "Call status polling timed out for call: $callId") : CallEException(message)
 }
 
 /**
@@ -62,12 +63,14 @@ sealed class CallEException(message: String, cause: Throwable? = null) : Excepti
 class CallEClient(
     private val apiKey: String = "",
     private val baseUrl: String = "https://api.heycall-e.com/v2"
-) {
+) : java.io.Closeable {
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
     private val jsonInstance = Json {
         ignoreUnknownKeys = true
-        prettyPrint = true
+        prettyPrint = false
         isLenient = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     private val httpClient by lazy {
@@ -91,16 +94,17 @@ class CallEClient(
 
     /** Check if we are in demo/simulation mode */
     val isDemoMode: Boolean
-        get() = apiKey.isBlank() || apiKey.startsWith("DEMO", ignoreCase = true)
+        get() = apiKey.startsWith("DEMO", ignoreCase = true) || apiKey.equals("MOCK", ignoreCase = true)
 
     /**
      * Validates if the API key works by making a lightweight read request to GET /v2/calls.
      */
     suspend fun validateApiKey(): Boolean {
         if (isDemoMode) return true
+        if (apiKey.isBlank()) return false
         return try {
             val response = httpClient.get("$baseUrl/calls") {
-                header("Authorization", "Bearer $apiKey")
+                header("Authorization", "Bearer ${apiKey.removePrefix("Bearer ").trim()}")
             }
             response.status.value in 200..299
         } catch (_: Exception) {
@@ -252,6 +256,7 @@ class CallEClient(
         maxAttempts: Int = 60
     ): Flow<CallResponse> = flow {
         var attempts = 0
+        var isFinalized = false
         while (attempts < maxAttempts) {
             val statusResult = getCallStatus(callId)
             if (statusResult.isSuccess) {
@@ -260,6 +265,7 @@ class CallEClient(
 
                 // CALL-E V2 Readiness Rule: Terminate only when result_status is no longer pending!
                 if (response.isResultReady) {
+                    isFinalized = true
                     break
                 }
             } else {
@@ -267,6 +273,9 @@ class CallEClient(
             }
             attempts++
             delay(pollIntervalMs)
+        }
+        if (!isFinalized) {
+            throw CallEException.TimeoutException(callId)
         }
     }
 
@@ -372,9 +381,9 @@ class CallEClient(
                 for (event in page.events) {
                     if (seenEventIds.add(event.id)) {
                         emit(event)
-                        currentCursor = event.id
                     }
                 }
+                currentCursor = page.nextCursor ?: page.events.lastOrNull()?.id ?: currentCursor
 
                 if (page.events.any { it.type in listOf("call.completed", "call.failed", "call.canceled") }) {
                     break
@@ -447,6 +456,9 @@ class CallEClient(
                 statusCode == 400 && code == "result_schema_invalid" -> {
                     CallEException.InvalidSchemaException(parsedMsg)
                 }
+                statusCode == 400 -> {
+                    CallEException.ValidationException(parsedMsg)
+                }
                 statusCode == 409 -> {
                     val reason = errObj?.optJSONObject("details")?.optString("reason_code")
                     CallEException.IdempotencyConflictException(reason, parsedMsg)
@@ -474,6 +486,7 @@ class CallEClient(
             }
         } catch (_: Exception) {
             when (statusCode) {
+                400 -> CallEException.ValidationException(parsedMsg)
                 401 -> CallEException.InvalidApiKeyException(parsedMsg)
                 403 -> CallEException.AccessDeniedException(parsedMsg)
                 404 -> CallEException.ResourceNotFoundException(resourceId.ifBlank { "requested resource" }, parsedMsg)
@@ -519,7 +532,7 @@ class CallEClient(
         }
     }
 
-    fun close() {
+    override fun close() {
         httpClient.close()
     }
 }

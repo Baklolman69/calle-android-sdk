@@ -41,13 +41,14 @@ class CallEPreferences(context: Context) {
     private val prefs: SharedPreferences = createEncryptedPrefs(context)
 
     private fun createEncryptedPrefs(context: Context): SharedPreferences {
+        val appContext = context.applicationContext ?: context
         return try {
-            val masterKey = MasterKey.Builder(context)
+            val masterKey = MasterKey.Builder(appContext)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
                 .build()
 
             EncryptedSharedPreferences.create(
-                context,
+                appContext,
                 ENCRYPTED_PREFS_FILE,
                 masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,

@@ -193,4 +193,41 @@ class CallEModelsTest {
         assertEquals(1, response.allTranscriptTurns.size)
         assertEquals("Hello from V1!", response.allTranscriptTurns[0].text)
     }
+
+    @Test
+    fun testFormattedPhoneCleaningAndExtraction() {
+        // Formatted number with parentheses and dashes
+        val req1 = CallRequest(
+            toPhoneNumber = "+15550199000",
+            promptInstructions = "Call (555) 019-9000 and check table availability"
+        )
+        assertEquals("check table availability", req1.cleanInstructions())
+
+        // Formatted number without action keyword should still strip 'and '
+        val req2 = CallRequest(
+            toPhoneNumber = "+15550199000",
+            promptInstructions = "Call +15550199000 and pizza delivery"
+        )
+        assertEquals("Ask pizza delivery regarding business hours, services offered, and general inquiries.", req2.cleanInstructions())
+    }
+
+    @Test
+    fun testDeviceContactResolverEarliestDelimiter() {
+        val resolver = com.calle.sdk.data.DeviceContactResolver()
+        // " in " occurs before " to "
+        val name1 = resolver.extractNameFromPrompt("Call Acme in New York to ask hours")
+        assertEquals("Acme", name1)
+
+        val name2 = resolver.extractNameFromPrompt("Call Mom and ask about dinner")
+        assertEquals("Mom", name2)
+    }
+
+    @Test
+    fun testClientDemoModeAndBlankKeySecurity() {
+        val demoClient = CallEClient(apiKey = "DEMO_KEY")
+        assertTrue(demoClient.isDemoMode)
+
+        val emptyClient = CallEClient(apiKey = "")
+        assertFalse(emptyClient.isDemoMode)
+    }
 }
