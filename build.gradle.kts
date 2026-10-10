@@ -75,7 +75,7 @@ afterEvaluate {
                 from(components["release"])
                 groupId = "com.github.Baklolman69"
                 artifactId = "calle-android-sdk"
-                version = "1.0.0"
+                version = "2.1.0"
             }
         }
     }

@@ -49,14 +49,14 @@ sequenceDiagram
     Resolver-->>App: ResolvedCallInfo (E.164 Phone + Task)
     
     App->>Client: dispatchCall(CallRequest)
-    Client->>Telecom: POST /v1/calls (Authorization: Bearer KEY)
-    Telecom-->>Client: CallResponse (Call ID, Status: DISPATCHING)
+    Client->>Telecom: POST /v2/calls (Authorization: Bearer KEY, Idempotency-Key)
+    Telecom-->>Client: CallResponse (202 Accepted, result_status: pending)
     Client-->>App: Result.success(CallResponse)
 
-    loop Call Lifecycle Polling (or Reactive Flow)
+    loop Call Lifecycle & Readiness Polling
         App->>Client: getCallStatus(callId) or pollCallStatus(callId)
-        Client->>Telecom: GET /v1/calls/{callId}
-        Telecom-->>Client: CallResponse (Status: CALL_IN_PROGRESS / SUCCESS)
+        Client->>Telecom: GET /v2/calls/{callId}
+        Telecom-->>Client: CallResponse (result_status: available / unavailable)
     end
 
     App->>Client: getTranscript(callId)
@@ -81,7 +81,7 @@ dependencyResolutionManagement {
 
 // app/build.gradle.kts
 dependencies {
-    implementation("com.github.Baklolman69:calle-android-sdk:1.0.0")
+    implementation("com.github.Baklolman69:calle-android-sdk:2.1.0")
 }
 ```
 
