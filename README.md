@@ -4,6 +4,7 @@
 [![Android](https://img.shields.io/badge/Platform-Android%20%7C%20Wear%20OS-green.svg?logo=android)](https://developer.android.com)
 [![API](https://img.shields.io/badge/CALL--E%20API-v2%20Calls-orange.svg)](https://docs.heycall-e.com/calls)
 [![JitPack](https://jitpack.io/v/Baklolman69/calle-android-sdk.svg)](https://jitpack.io/#Baklolman69/calle-android-sdk)
+[![Discussions](https://img.shields.io/badge/GitHub-Discussions-purple?logo=github)](https://github.com/Baklolman69/calle-android-sdk/discussions)
 [![License](https://img.shields.io/badge/License-MIT-purple.svg)](LICENSE)
 
 **`calle-android-sdk`** is the native Kotlin SDK for integrating [CALL-E](https://heycall-e.com) AI voice call agents into Android and Wear OS applications.
@@ -213,6 +214,17 @@ fun CallStatusScreen(callResponse: CallResponse) {
 ## 📑 Full SDK Documentation
 
 For complete class specifications, data models, error handling, and Wear OS guidelines, check out **[CALLE-ANDROID-SDK.md](CALLE-ANDROID-SDK.md)**.
+
+---
+
+## 💬 Community & Discussions
+
+Have questions, ideas for new features, or need help integrating the SDK?  
+Join our community on **[GitHub Discussions](https://github.com/Baklolman69/calle-android-sdk/discussions)**!
+
+- 📢 **[SDK v2.1 Announcement](https://github.com/Baklolman69/calle-android-sdk/discussions/10)** — Read about the latest features, schema validation, and lifecycle streaming.
+- 💡 **[Feature Ideas & Requests](https://github.com/Baklolman69/calle-android-sdk/discussions/categories/ideas)** — Suggest new integrations or capabilities.
+- 🙋 **[Q&A](https://github.com/Baklolman69/calle-android-sdk/discussions/categories/q-a)** — Get help with Android, Wear OS, or CALL-E API setup.
 
 ---
 
