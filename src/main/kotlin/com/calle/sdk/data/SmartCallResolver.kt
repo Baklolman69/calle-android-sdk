@@ -1,5 +1,6 @@
 package com.calle.sdk.data
 
+import com.calle.sdk.models.ResultSchema
 import com.calle.sdk.models.sanitizeE164Phone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,7 +13,9 @@ data class ResolvedCallInfo(
     val phone: String,
     val refinedPrompt: String,
     val businessName: String,
-    val searchSummary: String
+    val searchSummary: String,
+    val task: String = refinedPrompt,
+    val resultSchema: ResultSchema = ResultSchema.default()
 )
 
 class SmartCallResolver(
@@ -23,10 +26,10 @@ class SmartCallResolver(
     private val serpClient = SerpApiClient(serpApiKey)
 
     /**
-     * Resolves user intent:
+     * Resolves user intent for CALL-E V2:
      * 1. Extracts explicit phone number if present, or resolves contact name from device contact store if Context & READ_CONTACTS permission are provided.
      * 2. If missing (or if forceSearch = true), executes SerpApi Google Search to find phone number & online details.
-     * 3. Uses Groq AI to refine the call prompt with exact business details.
+     * 3. Uses Groq AI to refine the call task prompt with exact business details.
      */
     suspend fun resolveCall(
         rawPrompt: String,
@@ -79,8 +82,8 @@ class SmartCallResolver(
         val businessName = serpResult.businessName.ifBlank { parseBusinessName(rawPrompt) }
         val address = serpResult.address
 
-        // Step 2: Groq AI Synthesis & Prompt Refinement (For ALL calls)
-        onStatusUpdate("2/5 Groq AI Refining Prompt & Business Intent...")
+        // Step 2: Groq AI Synthesis & Task Refinement (For ALL calls)
+        onStatusUpdate("2/5 Groq AI Refining Task & Business Intent...")
         val groqRefinement = synthesizeWithGroq(
             userPrompt = rawPrompt,
             discoveredPhone = discoveredPhone.ifBlank { initialPhone },
@@ -89,7 +92,7 @@ class SmartCallResolver(
             snippetInfo = serpResult.snippetInfo
         )
 
-        // Fix Issue #1: Explicitly supplied initialPhone (or discovered phone) takes priority over LLM output
+        // Prioritize explicit / verified phone number
         val finalPhone = when {
             initialPhone.isNotBlank() && initialPhone.length >= 10 -> initialPhone
             discoveredPhone.isNotBlank() && discoveredPhone.length >= 10 -> discoveredPhone
@@ -97,11 +100,17 @@ class SmartCallResolver(
             else -> ""
         }
 
+        val taskString = groqRefinement.refinedTask.ifBlank {
+            buildFallbackResult(rawPrompt, finalPhone, businessName, address).refinedTask
+        }
+
         ResolvedCallInfo(
             phone = finalPhone,
-            refinedPrompt = groqRefinement.refinedPrompt,
+            refinedPrompt = taskString,
             businessName = businessName,
-            searchSummary = serpSummary
+            searchSummary = serpSummary,
+            task = taskString,
+            resultSchema = ResultSchema.default()
         )
     }
 
@@ -112,7 +121,7 @@ class SmartCallResolver(
         return parts.firstOrNull()?.trim()?.take(30) ?: clean.take(30)
     }
 
-    private data class GroqRefinementResult(val phone: String, val refinedPrompt: String)
+    private data class GroqRefinementResult(val phone: String, val refinedTask: String)
 
     private suspend fun synthesizeWithGroq(
         userPrompt: String,
@@ -144,10 +153,10 @@ class SmartCallResolver(
                 }
 
                 val systemPrompt = """
-                    You are an expert voice agent assistant. Given a user's instruction and Google Search (SerpApi) results, output a JSON object:
+                    You are an expert voice agent assistant. Given a user's instruction and Google Search (SerpApi) results, output a clean JSON object:
                     {
                       "phone": "<E.164 phone number if found, e.g. +15550199000, else empty>",
-                      "task": "<Refined call task string starting strictly with 'Call +1... and ...'>"
+                      "task": "<Conversational task instruction for CALL-E V2. Do NOT prepend 'Call +1... and'>"
                     }
                 """.trimIndent()
 
@@ -188,9 +197,14 @@ class SmartCallResolver(
                     if (jsonMatch != null) {
                         val parsed = JSONObject(jsonMatch)
                         val phone = sanitizeE164Phone(parsed.optString("phone", discoveredPhone))
-                        val task = parsed.optString("task", "")
+                        var task = parsed.optString("task", "")
+                        // Ensure clean V2 task format (not prefixed with 'Call +1... and')
+                        if (task.startsWith("Call ", ignoreCase = true)) {
+                            val andIdx = task.indexOf(" and ", ignoreCase = true)
+                            task = if (andIdx != -1) task.substring(andIdx + 5).trim() else task.substring(5).trim()
+                        }
                         if (task.isNotBlank()) {
-                            return GroqRefinementResult(phone = phone, refinedPrompt = task)
+                            return GroqRefinementResult(phone = phone, refinedTask = task)
                         }
                     }
                 }
@@ -207,12 +221,17 @@ class SmartCallResolver(
         address: String
     ): GroqRefinementResult {
         val phone = sanitizeE164Phone(discoveredPhone)
-        val cleanUser = if (userPrompt.startsWith("Call ", ignoreCase = true)) userPrompt.substring(5).trim() else userPrompt
-        val fallbackPrompt = if (phone.isNotBlank()) {
-            "Call $phone and ask $businessName at $address regarding $cleanUser."
-        } else {
-            "Search for $businessName, find their phone number, call them, and execute: $cleanUser"
+        var cleanUser = userPrompt.trim()
+        if (cleanUser.startsWith("Call ", ignoreCase = true)) {
+            cleanUser = cleanUser.substring(5).trim()
         }
-        return GroqRefinementResult(phone = phone, refinedPrompt = fallbackPrompt)
+        val fallbackTask = if (businessName.isNotBlank() && address.isNotBlank()) {
+            "Ask $businessName at $address regarding $cleanUser."
+        } else if (businessName.isNotBlank()) {
+            "Ask $businessName regarding $cleanUser."
+        } else {
+            cleanUser.ifBlank { "Inquire about business details and services." }
+        }
+        return GroqRefinementResult(phone = phone, refinedTask = fallbackTask)
     }
 }

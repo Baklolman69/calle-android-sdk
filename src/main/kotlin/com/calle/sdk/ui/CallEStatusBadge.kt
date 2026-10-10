@@ -27,10 +27,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.calle.sdk.models.CallEStatus
+import com.calle.sdk.models.CallOutcome
+import com.calle.sdk.models.CallResponse
+import com.calle.sdk.models.ResultStatus
 
 /**
- * Reusable Jetpack Compose Status Badge displaying live CALL-E task states.
- * Supports READY, DISPATCHING, CALL_IN_PROGRESS, SUCCESS, FAILED.
+ * Reusable Jetpack Compose Status Badge displaying live CALL-E V2 execution states.
+ * Supports READY, DISPATCHING, CALL_IN_PROGRESS, EXTRACTING_RESULT, SUCCESS, UNAVAILABLE, FAILED.
  */
 @Composable
 fun CallEStatusBadge(
@@ -43,7 +46,9 @@ fun CallEStatusBadge(
             CallEStatus.READY -> Color(0xFF64748B)
             CallEStatus.DISPATCHING -> Color(0xFFF59E0B)
             CallEStatus.CALL_IN_PROGRESS -> Color(0xFF3B82F6)
+            CallEStatus.EXTRACTING_RESULT -> Color(0xFF8B5CF6)
             CallEStatus.SUCCESS -> Color(0xFF10B981)
+            CallEStatus.UNAVAILABLE -> Color(0xFFF97316)
             CallEStatus.FAILED -> Color(0xFFEF4444)
         },
         label = "BadgeColorAnimation"
@@ -53,7 +58,9 @@ fun CallEStatusBadge(
         CallEStatus.READY -> "Ready"
         CallEStatus.DISPATCHING -> "Dispatching..."
         CallEStatus.CALL_IN_PROGRESS -> "Call Active"
+        CallEStatus.EXTRACTING_RESULT -> "Extracting..."
         CallEStatus.SUCCESS -> "Completed"
+        CallEStatus.UNAVAILABLE -> "Unavailable"
         CallEStatus.FAILED -> "Failed"
     }
 
@@ -68,7 +75,9 @@ fun CallEStatusBadge(
         label = "AlphaPulse"
     )
 
-    val isAnimated = status == CallEStatus.DISPATCHING || status == CallEStatus.CALL_IN_PROGRESS
+    val isAnimated = status == CallEStatus.DISPATCHING ||
+            status == CallEStatus.CALL_IN_PROGRESS ||
+            status == CallEStatus.EXTRACTING_RESULT
 
     Row(
         modifier = modifier
@@ -97,4 +106,37 @@ fun CallEStatusBadge(
             fontWeight = FontWeight.SemiBold
         )
     }
+}
+
+/**
+ * Convenient overload accepting a CALL-E V2 [CallResponse] directly.
+ * Maps V2 `call_outcome` and `result_status` accurately to UI state.
+ */
+@Composable
+fun CallEStatusBadge(
+    response: CallResponse,
+    modifier: Modifier = Modifier,
+    compact: Boolean = false
+) {
+    val mappedStatus = when {
+        response.error != null || response.resultStatus == ResultStatus.NOT_APPLICABLE -> CallEStatus.FAILED
+        response.resultStatus == ResultStatus.AVAILABLE -> CallEStatus.SUCCESS
+        response.resultStatus == ResultStatus.UNAVAILABLE -> CallEStatus.UNAVAILABLE
+        response.resultStatus == ResultStatus.PENDING -> {
+            if (response.status.equals("completed", ignoreCase = true)) {
+                CallEStatus.EXTRACTING_RESULT
+            } else if (response.status.equals("in_progress", ignoreCase = true)) {
+                CallEStatus.CALL_IN_PROGRESS
+            } else {
+                CallEStatus.DISPATCHING
+            }
+        }
+        else -> CallEStatus.READY
+    }
+
+    CallEStatusBadge(
+        status = mappedStatus,
+        modifier = modifier,
+        compact = compact
+    )
 }

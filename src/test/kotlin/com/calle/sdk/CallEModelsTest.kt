@@ -1,18 +1,30 @@
 package com.calle.sdk
 
 import com.calle.sdk.models.CallAttempt
+import com.calle.sdk.models.CallOutcome
 import com.calle.sdk.models.CallRecipient
 import com.calle.sdk.models.CallRequest
 import com.calle.sdk.models.CallResponse
+import com.calle.sdk.models.ResultSchema
+import com.calle.sdk.models.ResultStatus
 import com.calle.sdk.models.TranscriptTurn
 import com.calle.sdk.models.isValidE164Phone
 import com.calle.sdk.models.sanitizeE164Phone
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CallEModelsTest {
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        encodeDefaults = true
+    }
 
     @Test
     fun testE164Validation() {
@@ -32,7 +44,22 @@ class CallEModelsTest {
     }
 
     @Test
-    fun testCallRequestToTaskStringWithPhoneAndAction() {
+    fun testCallRequestCleanInstructions() {
+        val requestWithPrefix = CallRequest(
+            toPhoneNumber = "+15550199000",
+            promptInstructions = "Call +15550199000 and ask if they have vegan options tonight"
+        )
+        assertEquals("ask if they have vegan options tonight", requestWithPrefix.cleanInstructions())
+
+        val requestSimple = CallRequest(
+            toPhoneNumber = "+15550199000",
+            promptInstructions = "ask if they have vegan options tonight"
+        )
+        assertEquals("ask if they have vegan options tonight", requestSimple.cleanInstructions())
+    }
+
+    @Test
+    fun testCallRequestToTaskStringBackwardCompatibility() {
         val request = CallRequest(
             toPhoneNumber = "+15550199000",
             promptInstructions = "ask if they have vegan options tonight"
@@ -42,22 +69,113 @@ class CallEModelsTest {
     }
 
     @Test
-    fun testCallRequestToTaskStringWithoutActionAppendsDefault() {
-        val request = CallRequest(
-            toPhoneNumber = "+15550199000",
-            promptInstructions = "Luigi's Pizza 123 Main St"
-        )
-        val taskString = request.toTaskString()
-        assertTrue(taskString.startsWith("Call +15550199000 and ask Luigi's Pizza 123 Main St"))
+    fun testResultSchemaDefault() {
+        val defaultSchema = ResultSchema.default()
+        assertEquals("object", defaultSchema.type)
+        assertFalse(defaultSchema.additionalProperties)
+        assertTrue(defaultSchema.properties.containsKey("summary"))
+        assertTrue(defaultSchema.properties.containsKey("task_completed"))
+        assertEquals("string", defaultSchema.properties["summary"]?.type)
+        assertEquals("boolean", defaultSchema.properties["task_completed"]?.type)
+
+        val encodedJson = json.encodeToString(ResultSchema.serializer(), defaultSchema)
+        assertTrue(encodedJson.contains("\"type\":\"object\""))
+        assertTrue(encodedJson.contains("\"additionalProperties\":false"))
     }
 
     @Test
-    fun testCallResponseHelperMethods() {
-        val attemptTurn = TranscriptTurn(offsetSeconds = 1, speaker = "bot", text = "Hello!")
+    fun testV2CallResponseAvailableDeserialization() {
+        val v2RawJson = """
+            {
+              "id": "call_123456",
+              "call_id": "billing_987654321",
+              "status": "completed",
+              "call_outcome": "completed",
+              "result_status": "available",
+              "task": "Ask opening hours tonight.",
+              "phone": "+15550199000",
+              "transcript": [
+                {"speaker": "bot", "offset_seconds": 0, "text": "Hello, are you open tonight?"},
+                {"speaker": "user", "offset_seconds": 3, "text": "Yes, until 10 PM."}
+              ],
+              "result": {
+                "summary": "The restaurant is open until 10 PM tonight.",
+                "task_completed": true
+              },
+              "created_at": "2026-10-10T10:00:00Z",
+              "completed_at": "2026-10-10T10:01:00Z"
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<CallResponse>(v2RawJson)
+
+        assertEquals("call_123456", response.id)
+        assertEquals("billing_987654321", response.billingCallId)
+        assertEquals("completed", response.status)
+        assertEquals(CallOutcome.COMPLETED, response.callOutcome)
+        assertEquals(ResultStatus.AVAILABLE, response.resultStatus)
+        assertTrue(response.isResultReady)
+
+        assertEquals(2, response.transcript.size)
+        assertEquals("bot", response.transcript[0].speaker)
+        assertEquals("Hello, are you open tonight?", response.transcript[0].text)
+
+        assertEquals("The restaurant is open until 10 PM tonight.", response.bestSummary)
+        assertNull(response.error)
+    }
+
+    @Test
+    fun testV2CallResponseBusyUnavailableDeserialization() {
+        val v2RawJson = """
+            {
+              "id": "call_busy_123",
+              "call_id": "billing_busy_456",
+              "status": "completed",
+              "call_outcome": "busy",
+              "result_status": "unavailable",
+              "task": "Confirm reservation",
+              "transcript": [],
+              "result": null,
+              "error": null
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<CallResponse>(v2RawJson)
+
+        assertEquals(CallOutcome.BUSY, response.callOutcome)
+        assertEquals(ResultStatus.UNAVAILABLE, response.resultStatus)
+        assertTrue(response.isResultReady) // Result is ready (unavailable, not pending)
+        assertNull(response.result)
+        assertNull(response.bestSummary)
+    }
+
+    @Test
+    fun testV2CallResponsePendingReadinessRule() {
+        val v2PendingJson = """
+            {
+              "id": "call_pending_123",
+              "status": "completed",
+              "call_outcome": "completed",
+              "result_status": "pending",
+              "result": null
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<CallResponse>(v2PendingJson)
+
+        // Telephone status is "completed", BUT result_status is "pending"!
+        assertEquals("completed", response.status)
+        assertEquals(ResultStatus.PENDING, response.resultStatus)
+        assertFalse(response.isResultReady) // MUST NOT be treated as ready!
+    }
+
+    @Test
+    fun testV1LegacyCallResponseFallback() {
+        val attemptTurn = TranscriptTurn(offsetSeconds = 1, speaker = "bot", text = "Hello from V1!")
         val attempt = CallAttempt(
             id = "att_1",
             status = "completed",
-            summary = "Reservation confirmed",
+            summary = "V1 Reservation confirmed",
             transcriptTurns = listOf(attemptTurn)
         )
         val recipient = CallRecipient(
@@ -66,13 +184,13 @@ class CallEModelsTest {
             attempts = listOf(attempt)
         )
         val response = CallResponse(
-            id = "call_999",
+            id = "call_legacy_999",
             status = "SUCCESS",
             recipients = listOf(recipient)
         )
 
-        assertEquals("Reservation confirmed", response.bestSummary)
+        assertEquals("V1 Reservation confirmed", response.bestSummary)
         assertEquals(1, response.allTranscriptTurns.size)
-        assertEquals("Hello!", response.allTranscriptTurns[0].text)
+        assertEquals("Hello from V1!", response.allTranscriptTurns[0].text)
     }
 }

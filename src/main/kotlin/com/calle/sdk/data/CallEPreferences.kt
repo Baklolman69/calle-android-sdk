@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKeys
+import androidx.security.crypto.MasterKey
 
 /**
  * Encrypted credential storage for CALL-E Android SDK.
@@ -42,11 +42,14 @@ class CallEPreferences(context: Context) {
 
     private fun createEncryptedPrefs(context: Context): SharedPreferences {
         return try {
-            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            val masterKey = MasterKey.Builder(context)
+                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                .build()
+
             EncryptedSharedPreferences.create(
-                ENCRYPTED_PREFS_FILE,
-                masterKeyAlias,
                 context,
+                ENCRYPTED_PREFS_FILE,
+                masterKey,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
